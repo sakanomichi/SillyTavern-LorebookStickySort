@@ -1,6 +1,10 @@
 # Lorebook Sticky Sort
 
-Automatically remembers your preferred sort order for each lorebook.
+A SillyTavern extension that enables it to automatically remember your preferred sort order for each individual lorebook.
+
+## Why Use This?
+
+If you frequently switch between lorebooks that need different sort orders (e.g., Custom order for a specific type of lorebook vs UID order for a memory book), this extension eliminates the need to manually change sorting every time you switch. This was my personal pain point and why I made this.
 
 ## Features
 
