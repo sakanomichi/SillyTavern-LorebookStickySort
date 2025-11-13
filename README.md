@@ -20,7 +20,7 @@ If you frequently switch between lorebooks that need different sort orders (e.g.
 1. Download or clone this repository
 2. Copy the `SillyTavern-LorebookStickySort` folder into your SillyTavern installation:
    ```
-   public/scripts/extensions/third-party/SillyTavern-Ghostfinder/
+   public/scripts/extensions/third-party/SillyTavern-LorebookStickySort/
    ```
 3. Restart SillyTavern
 4. The extension will load automatically
