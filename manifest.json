@@ -4,10 +4,9 @@
     "requires": [],
     "optional": [],
     "js": "index.js",
-    "css": "style.css",
     "author": "sakanomichi",
     "version": "2.0.0",
-	"license": "GPL-3.0",
-    "homePage": "https://github.com/sakanomichi/SillyTavern-LorebookStickySort/",
+    "license": "GPL-3.0",
+	"homePage": "https://github.com/sakanomichi/SillyTavern-LorebookStickySort/",
     "auto_update": false
 }
