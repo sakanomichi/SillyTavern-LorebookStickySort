@@ -21,8 +21,8 @@ const SORT_ORDER_NAMES = {
     '11': 'UID ↘',
     '12': 'Trigger% ↗',
     '13': 'Trigger% ↘',
-	'15': 'Position ↗',
-	'16': 'Position ↘'
+    '15': 'Position ↗',
+    '16': 'Position ↘'
 };
 
 // Helper for debug logging
@@ -44,7 +44,8 @@ let isRestoring = false;
 const defaultSettings = {
     sortPreferences: {},
     enabled: true,
-    debugMode: false
+    debugMode: false,
+    promptOnRename: true
 };
 
 // Initialize settings
@@ -64,6 +65,11 @@ function loadSettings() {
         extension_settings[extensionName].debugMode = false;
     }
     
+    // Ensure promptOnRename exists
+    if (extension_settings[extensionName].promptOnRename === undefined) {
+        extension_settings[extensionName].promptOnRename = true;
+    }
+    
     // Update UI if it exists
     const enabledCheckbox = document.querySelector('#sillytavern_lorebookstickysort_enabled');
     if (enabledCheckbox) {
@@ -73,6 +79,11 @@ function loadSettings() {
     const debugCheckbox = document.querySelector('#sillytavern_lorebookstickysort_debug');
     if (debugCheckbox) {
         debugCheckbox.checked = extension_settings[extensionName].debugMode;
+    }
+    
+    const promptCheckbox = document.querySelector('#sillytavern_lorebookstickysort_prompt_rename');
+    if (promptCheckbox) {
+        promptCheckbox.checked = extension_settings[extensionName].promptOnRename;
     }
     
     log("Settings loaded:", extension_settings[extensionName]);
@@ -279,19 +290,29 @@ function handlePossibleRename(oldName, newName) {
         const sortOrder = prefs[oldName];
         const sortName = SORT_ORDER_NAMES[sortOrder];
         
-        const confirmed = confirm(
-            `Detected possible lorebook rename:\n` +
-            `"${oldName}" → "${newName}"\n\n` +
-            `Transfer sort preference (${sortName}) to the new name?\n\n` +
-            `Click OK if this is a rename, or Cancel if these are different lorebooks.`
-        );
+        let confirmed = true;
+        
+        // Only prompt if setting is enabled
+        if (extension_settings[extensionName].promptOnRename) {
+            confirmed = confirm(
+                `Detected possible lorebook rename:\n` +
+                `"${oldName}" → "${newName}"\n\n` +
+                `Transfer sort preference (${sortName}) to the new name?\n\n` +
+                `Click OK if this is a rename, or Cancel if these are different lorebooks.`
+            );
+        } else {
+            info(`Auto-migrating sort preference: "${oldName}" → "${newName}"`);
+        }
         
         if (confirmed) {
             prefs[newName] = sortOrder;
             delete prefs[oldName];
             saveSettingsDebounced();
             info(`Sort preference migrated: "${oldName}" → "${newName}"`);
-            toastr.success('Sort preference updated for renamed lorebook', 'Lorebook Sticky Sort');
+            
+            if (!extension_settings[extensionName].promptOnRename) {
+                toastr.success('Sort preference updated for renamed lorebook', 'Lorebook Sticky Sort');
+            }
         }
     }
 }
@@ -310,6 +331,14 @@ function onDebugModeChange(event) {
     extension_settings[extensionName].debugMode = value;
     saveSettingsDebounced();
     info(`Debug mode ${value ? 'enabled' : 'disabled'}`);
+}
+
+// Handle prompt on rename toggle
+function onPromptRenameChange(event) {
+    const value = Boolean($(event.target).prop("checked"));
+    extension_settings[extensionName].promptOnRename = value;
+    saveSettingsDebounced();
+    info(`Prompt on rename ${value ? 'enabled' : 'disabled'}`);
 }
 
 // Handle clear preferences button
@@ -331,7 +360,7 @@ function onClearPreferences() {
     }
 }
 
-// Initialise the extension
+// Initialize the extension
 async function init() {
     info("Initializing...");
     
@@ -345,11 +374,13 @@ async function init() {
         // Bind event handlers
         $("#sillytavern_lorebookstickysort_enabled").on("input", onEnabledChange);
         $("#sillytavern_lorebookstickysort_debug").on("input", onDebugModeChange);
+        $("#sillytavern_lorebookstickysort_prompt_rename").on("input", onPromptRenameChange);
         $("#sillytavern_lorebookstickysort_clear").on("click", onClearPreferences);
         
         // Update checkboxes
         $("#sillytavern_lorebookstickysort_enabled").prop("checked", extension_settings[extensionName].enabled);
         $("#sillytavern_lorebookstickysort_debug").prop("checked", extension_settings[extensionName].debugMode);
+        $("#sillytavern_lorebookstickysort_prompt_rename").prop("checked", extension_settings[extensionName].promptOnRename);
         
         log("Settings UI loaded");
     } catch (error) {
