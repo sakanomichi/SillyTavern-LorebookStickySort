@@ -95,6 +95,13 @@ function getCurrentLorebookInfo() {
     if (worldSelect && worldSelect.selectedIndex >= 0) {
         const selectedOption = worldSelect.options[worldSelect.selectedIndex];
         const name = selectedOption?.text || 'Unknown';
+        
+        // Skip the placeholder option
+        if (name === '--- Pick to Edit ---' || worldSelect.value === '') {
+            log("No lorebook selected (placeholder)");
+            return null;
+        }
+        
         return {
             id: name,
             name: name
@@ -254,29 +261,33 @@ function setupRenameDetection() {
         console.warn(`[${extensionDisplayName}] Cannot setup rename detection - selector not found`);
         return;
     }
-    
+
     // Track current lorebook names and when it was last changed
-    let currentNames = Array.from(worldSelect.options).map(opt => opt.text);
-    let lastChangeTime = 0;
+    // Filter out the placeholder option
+    let currentNames = Array.from(worldSelect.options)
+    .map(opt => opt.text)
+    .filter(text => text !== '--- Pick to Edit ---');
     
     // Create observer using Web API
     const observer = new MutationObserver(() => {
-        const now = Date.now();
-        const timeSinceLastChange = now - lastChangeTime;
-        lastChangeTime = now;
-        
-        const newNames = Array.from(worldSelect.options).map(opt => opt.text);
-        const added = newNames.filter(n => !currentNames.includes(n));
-        const removed = currentNames.filter(n => !newNames.includes(n));
-        
-        // One added + one removed within 500ms = likely a rename
-        // (Delete + create would be slower and have multiple separate mutations)
-        if (added.length === 1 && removed.length === 1 && timeSinceLastChange < 500) {
-            handlePossibleRename(removed[0], added[0]);
-        }
-        
-        currentNames = newNames;
-    });
+    const now = Date.now();
+    const timeSinceLastChange = now - lastChangeTime;
+    lastChangeTime = now;
+    
+    const newNames = Array.from(worldSelect.options)
+        .map(opt => opt.text)
+        .filter(text => text !== '--- Pick to Edit ---');  // Add filter here too
+    const added = newNames.filter(n => !currentNames.includes(n));
+    const removed = currentNames.filter(n => !newNames.includes(n));
+    
+    // One added + one removed within 500ms = likely a rename
+    // (Delete + create would be slower and have multiple separate mutations)
+    if (added.length === 1 && removed.length === 1 && timeSinceLastChange < 500) {
+        handlePossibleRename(removed[0], added[0]);
+    }
+    
+    currentNames = newNames;
+});
     
     observer.observe(worldSelect, { childList: true });
     log("Rename detection active");
