@@ -20,7 +20,9 @@ const SORT_ORDER_NAMES = {
     '10': 'UID ↗',
     '11': 'UID ↘',
     '12': 'Trigger% ↗',
-    '13': 'Trigger% ↘'
+    '13': 'Trigger% ↘',
+	'15': 'Position ↗',
+	'16': 'Position ↘'
 };
 
 // Helper for debug logging
@@ -81,9 +83,10 @@ function getCurrentLorebookInfo() {
     const worldSelect = document.querySelector('#world_editor_select');
     if (worldSelect && worldSelect.selectedIndex >= 0) {
         const selectedOption = worldSelect.options[worldSelect.selectedIndex];
+        const name = selectedOption?.text || 'Unknown';
         return {
-            id: worldSelect.value,
-            name: selectedOption?.text || 'Unknown'
+            id: name,
+            name: name
         };
     }
     
@@ -233,6 +236,66 @@ function hookEvents() {
     });
 }
 
+// Detect lorebook renames by watching the dropdown
+function setupRenameDetection() {
+    const worldSelect = document.querySelector('#world_editor_select');
+    if (!worldSelect) {
+        console.warn(`[${extensionDisplayName}] Cannot setup rename detection - selector not found`);
+        return;
+    }
+    
+    // Track current lorebook names and when it was last changed
+    let currentNames = Array.from(worldSelect.options).map(opt => opt.text);
+    let lastChangeTime = 0;
+    
+    // Create observer using Web API
+    const observer = new MutationObserver(() => {
+        const now = Date.now();
+        const timeSinceLastChange = now - lastChangeTime;
+        lastChangeTime = now;
+        
+        const newNames = Array.from(worldSelect.options).map(opt => opt.text);
+        const added = newNames.filter(n => !currentNames.includes(n));
+        const removed = currentNames.filter(n => !newNames.includes(n));
+        
+        // One added + one removed within 500ms = likely a rename
+        // (Delete + create would be slower and have multiple separate mutations)
+        if (added.length === 1 && removed.length === 1 && timeSinceLastChange < 500) {
+            handlePossibleRename(removed[0], added[0]);
+        }
+        
+        currentNames = newNames;
+    });
+    
+    observer.observe(worldSelect, { childList: true });
+    log("Rename detection active");
+}
+
+// Handle detected lorebook rename
+function handlePossibleRename(oldName, newName) {
+    const prefs = extension_settings[extensionName].sortPreferences;
+    
+    if (prefs[oldName]) {
+        const sortOrder = prefs[oldName];
+        const sortName = SORT_ORDER_NAMES[sortOrder];
+        
+        const confirmed = confirm(
+            `Detected possible lorebook rename:\n` +
+            `"${oldName}" → "${newName}"\n\n` +
+            `Transfer sort preference (${sortName}) to the new name?\n\n` +
+            `Click OK if this is a rename, or Cancel if these are different lorebooks.`
+        );
+        
+        if (confirmed) {
+            prefs[newName] = sortOrder;
+            delete prefs[oldName];
+            saveSettingsDebounced();
+            info(`Sort preference migrated: "${oldName}" → "${newName}"`);
+            toastr.success('Sort preference updated for renamed lorebook', 'Lorebook Sticky Sort');
+        }
+    }
+}
+
 // Handle enabled toggle
 function onEnabledChange(event) {
     const value = Boolean($(event.target).prop("checked"));
@@ -268,38 +331,39 @@ function onClearPreferences() {
     }
 }
 
-// Initialize the extension
+// Initialise the extension
 async function init() {
     info("Initializing...");
     
     loadSettings();
     
     // Load settings UI
-	try {
-		const settingsHtml = await $.get(`${extensionFolderPath}/settings.html`);
-		$("#extensions_settings2").append(settingsHtml);
-		
-		// Bind event handlers
-		$("#sillytavern_lorebookstickysort_enabled").on("input", onEnabledChange);
-		$("#sillytavern_lorebookstickysort_debug").on("input", onDebugModeChange);
-		$("#sillytavern_lorebookstickysort_clear").on("click", onClearPreferences);
-		
-		// Update checkbox states
-		$("#sillytavern_lorebookstickysort_enabled").prop("checked", extension_settings[extensionName].enabled);
-		$("#sillytavern_lorebookstickysort_debug").prop("checked", extension_settings[extensionName].debugMode);
-		
-		log("Settings UI loaded");
+    try {
+        const settingsHtml = await $.get(`${extensionFolderPath}/settings.html`);
+        $("#extensions_settings2").append(settingsHtml);
+        
+        // Bind event handlers
+        $("#sillytavern_lorebookstickysort_enabled").on("input", onEnabledChange);
+        $("#sillytavern_lorebookstickysort_debug").on("input", onDebugModeChange);
+        $("#sillytavern_lorebookstickysort_clear").on("click", onClearPreferences);
+        
+        // Update checkboxes
+        $("#sillytavern_lorebookstickysort_enabled").prop("checked", extension_settings[extensionName].enabled);
+        $("#sillytavern_lorebookstickysort_debug").prop("checked", extension_settings[extensionName].debugMode);
+        
+        log("Settings UI loaded");
     } catch (error) {
-        console.error(`[${extensionDisplayName}] Failed to load settings UI:`, error);  // FIXED: parentheses and removed duplication
+        console.error(`[${extensionDisplayName}] Failed to load settings UI:`, error);
     }
     
-    // Wait a bit for ST to load UI elements
+    // Wait for ST to load UI elements
     await new Promise(resolve => setTimeout(resolve, 1000));
     
-    // Set up our hooks
+    // Set up hooks
     hookSortChanges();
     hookLorebookSwitch();
     hookEvents();
+    setupRenameDetection();
     
     // Try to restore for current lorebook
     restoreSortPreference();
@@ -308,7 +372,7 @@ async function init() {
     log("Available event types:", Object.keys(event_types));
 }
 
-// Register the extension
+// Register
 jQuery(async () => {
     await init();
 });
