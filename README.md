@@ -38,15 +38,16 @@ Access settings through **Extensions → Lorebook Sticky Sort**:
 
 ## How It Works
 
-The extension monitors the World Info sort dropdown. When you change the sort order, it saves that preference along with the current lorebook's identifier. When you switch lorebooks, it checks if a saved preference exists and restores it.
+The extension monitors the World Info sort dropdown. When you change the sort order, it saves that preference along with the current lorebook's name. When you switch lorebooks, it checks if a saved preference exists and restores it.
 
-**Note**: Preferences are stored in SillyTavern's settings system, not in the extension files. Reinstalling the extension will preserve your preferences, but clearing SillyTavern settings or browser data will erase them. You can manually clear all preferences using the "Clear All Preferences" button in the extension settings.
+The extension also detects when you rename a lorebook and offers to transfer the sort preference to the new name automatically.
 
+**Note**: Preferences are stored by lorebook name in SillyTavern's settings system, not in the extension files. Reinstalling the extension will preserve your preferences, but clearing SillyTavern settings or browser data will erase them. You can manually clear all preferences using the "Clear All Preferences" button in the extension settings.
 ## Troubleshooting
 
 If the extension isn't working:
 
-1. Open the browser console (F12) and look for `[SillyTavern-LorebookStickySort]` messages
+1. Open the browser console (F12) and look for `[LorebookStickySort]` messages
 2. Enable debug logging in the extension settings
 3. Verify all files are in the correct directory
 4. Try clearing your browser cache
