@@ -1,6 +1,6 @@
 # Lorebook Sticky Sort
 
-A SillyTavern extension that enables it to automatically remember your preferred sort order for each individual lorebook.
+A SillyTavern extension that automatically remembers your preferred sort order for each individual lorebook.
 
 ## Why Use This?
 
@@ -12,6 +12,7 @@ If you frequently switch between lorebooks that need different sort orders (e.g.
 - Automatically restores your preferred sort when you switch lorebooks
 - Preferences persist across browser sessions
 - Optional debug logging for troubleshooting
+- Clear all preferences button for easy reset
 
 ## Installation
 
@@ -29,20 +30,26 @@ If you frequently switch between lorebooks that need different sort orders (e.g.
 
 Simply use your lorebooks as normal. When you change the sort order in a lorebook, that preference is saved. When you return to that lorebook later, your preferred sort order is automatically restored.
 
+**Note:** If you rename a lorebook, it will be treated as a new lorebook and will use the default sort order until you set a new preference.
+
 ## Settings
 
 Access settings through **Extensions → Lorebook Sticky Sort**:
 
 - **Enable Sticky Sort**: Toggle the extension functionality on/off
 - **Enable Debug Logging**: Shows detailed console information for troubleshooting
+- **Clear All Preferences**: Removes all saved sort preferences (useful if you want a fresh start)
 
 ## How It Works
 
 The extension monitors the World Info sort dropdown. When you change the sort order, it saves that preference along with the current lorebook's name. When you switch lorebooks, it checks if a saved preference exists and restores it.
 
-The extension also detects when you rename a lorebook and offers to transfer the sort preference to the new name automatically.
+Preferences are stored by lorebook name in SillyTavern's extension settings. This means:
+- Settings persist across browser sessions
+- Settings survive lorebook deletion/reimport (as long as you keep the same name)
+- Renaming a lorebook will reset its preference to default
+- You can manually clear all preferences using the button in settings
 
-**Note**: Preferences are stored by lorebook name in SillyTavern's settings system, not in the extension files. Reinstalling the extension will preserve your preferences, but clearing SillyTavern settings or browser data will erase them. You can manually clear all preferences using the "Clear All Preferences" button in the extension settings.
 ## Troubleshooting
 
 If the extension isn't working:
@@ -51,6 +58,7 @@ If the extension isn't working:
 2. Enable debug logging in the extension settings
 3. Verify all files are in the correct directory
 4. Try clearing your browser cache
+5. If preferences seem stuck, use the "Clear All Preferences" button
 
 ## Technical Details
 
@@ -62,6 +70,12 @@ If the extension isn't working:
 - Order (ascending, descending)
 - UID (ascending, descending)
 - Trigger% (ascending, descending)
+
+**Technical Improvements (v2.1.1):**
+- Proper event listener cleanup to prevent memory leaks
+- Uses `APP_READY` event for reliable initialization timing
+- All event listeners are tracked and cleaned up on reinitialization
+- Simplified storage approach using lorebook names directly
 
 The extension uses Select2 event handlers to detect lorebook switches and standard change events for sort modifications.
 
