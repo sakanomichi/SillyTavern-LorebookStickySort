@@ -20,9 +20,7 @@ const SORT_ORDER_NAMES = {
     '10': 'UID ↗',
     '11': 'UID ↘',
     '12': 'Trigger% ↗',
-    '13': 'Trigger% ↘',
-    '15': 'Position ↗',
-    '16': 'Position ↘'
+    '13': 'Trigger% ↘'
 };
 
 // Helper for debug logging
@@ -40,12 +38,14 @@ function info(...args) {
 // Flag to prevent recursive saves when restoring
 let isRestoring = false;
 
+// Track event listeners for cleanup
+let trackedListeners = [];
+
 // Default settings
 const defaultSettings = {
     sortPreferences: {},
     enabled: true,
-    debugMode: false,
-    promptOnRename: true
+    debugMode: false
 };
 
 // Initialize settings
@@ -65,11 +65,6 @@ function loadSettings() {
         extension_settings[extensionName].debugMode = false;
     }
     
-    // Ensure promptOnRename exists
-    if (extension_settings[extensionName].promptOnRename === undefined) {
-        extension_settings[extensionName].promptOnRename = true;
-    }
-    
     // Update UI if it exists
     const enabledCheckbox = document.querySelector('#sillytavern_lorebookstickysort_enabled');
     if (enabledCheckbox) {
@@ -81,31 +76,88 @@ function loadSettings() {
         debugCheckbox.checked = extension_settings[extensionName].debugMode;
     }
     
-    const promptCheckbox = document.querySelector('#sillytavern_lorebookstickysort_prompt_rename');
-    if (promptCheckbox) {
-        promptCheckbox.checked = extension_settings[extensionName].promptOnRename;
-    }
-    
     log("Settings loaded:", extension_settings[extensionName]);
 }
 
-// Get current lorebook identifier and name
-function getCurrentLorebookInfo() {
+// Migrate old index-based preferences to name-based (one-time, v2.0.0/v2.1.0 → v2.1.1)
+function migrateOldPreferences() {
+    const prefs = extension_settings[extensionName].sortPreferences;
+    
+    // Check if we have old numeric index keys (e.g., "0", "1", "2")
+    const hasNumericKeys = Object.keys(prefs).some(key => /^\d+$/.test(key));
+    
+    if (!hasNumericKeys || Object.keys(prefs).length === 0) {
+        log("No migration needed - preferences already use names or empty");
+        return;
+    }
+    
+    info("Migrating old index-based preferences to name-based...");
+    
+    const worldSelect = document.querySelector('#world_editor_select');
+    if (!worldSelect || worldSelect.options.length === 0) {
+        log("Cannot migrate - world select not available yet");
+        return;
+    }
+    
+    const newPrefs = {};
+    let migratedCount = 0;
+    
+    // Convert numeric indices to lorebook names
+    for (const [key, value] of Object.entries(prefs)) {
+        // If it's a numeric key (old format)
+        if (/^\d+$/.test(key)) {
+            const index = parseInt(key);
+            if (index >= 0 && index < worldSelect.options.length) {
+                const lorebookName = worldSelect.options[index]?.text;
+                if (lorebookName) {
+                    newPrefs[lorebookName] = value;
+                    migratedCount++;
+                    log(`Migrated: index ${index} → "${lorebookName}" = ${value}`);
+                }
+            }
+        } else {
+            // Keep any existing name-based keys
+            newPrefs[key] = value;
+        }
+    }
+    
+    if (migratedCount > 0) {
+        extension_settings[extensionName].sortPreferences = newPrefs;
+        saveSettingsDebounced();
+        info(`Migration complete: ${migratedCount} preferences converted to name-based storage`);
+    } else {
+        log("Migration found no preferences to convert");
+    }
+}
+
+// Clean up all tracked event listeners
+function cleanupEventListeners() {
+    log("Cleaning up event listeners");
+    
+    trackedListeners.forEach(({ element, event, handler, isJQuery }) => {
+        try {
+            if (isJQuery && element && element.off) {
+                element.off(event, handler);
+            } else if (element && element.removeEventListener) {
+                element.removeEventListener(event, handler);
+            } else if (element && element.removeListener) {
+                element.removeListener(event, handler);
+            }
+        } catch (error) {
+            console.warn(`[${extensionDisplayName}] Error removing listener:`, error);
+        }
+    });
+    
+    trackedListeners.length = 0;
+    log("Cleanup complete");
+}
+
+// Get current lorebook name
+function getCurrentLorebookName() {
     const worldSelect = document.querySelector('#world_editor_select');
     if (worldSelect && worldSelect.selectedIndex >= 0) {
         const selectedOption = worldSelect.options[worldSelect.selectedIndex];
-        const name = selectedOption?.text || 'Unknown';
-        
-        // Skip the placeholder option
-        if (name === '--- Pick to Edit ---' || worldSelect.value === '') {
-            log("No lorebook selected (placeholder)");
-            return null;
-        }
-        
-        return {
-            id: name,
-            name: name
-        };
+        return selectedOption?.text || null;
     }
     
     log("WARNING: Could not find #world_editor_select");
@@ -156,12 +208,12 @@ function saveSortPreference() {
         return;
     }
     
-    const lorebookInfo = getCurrentLorebookInfo();
+    const lorebookName = getCurrentLorebookName();
     const sortInfo = getCurrentSortInfo();
     
-    if (lorebookInfo && sortInfo) {
-        log(`Saving: "${lorebookInfo.name}" -> ${sortInfo.name}`);
-        extension_settings[extensionName].sortPreferences[lorebookInfo.id] = sortInfo.value;
+    if (lorebookName && sortInfo) {
+        log(`Saving: "${lorebookName}" -> ${sortInfo.name}`);
+        extension_settings[extensionName].sortPreferences[lorebookName] = sortInfo.value;
         saveSettingsDebounced();
     }
 }
@@ -174,19 +226,19 @@ function restoreSortPreference() {
         return;
     }
     
-    const lorebookInfo = getCurrentLorebookInfo();
+    const lorebookName = getCurrentLorebookName();
     
-    if (lorebookInfo) {
-        const savedSort = extension_settings[extensionName].sortPreferences[lorebookInfo.id];
+    if (lorebookName) {
+        const savedSort = extension_settings[extensionName].sortPreferences[lorebookName];
         const savedSortName = savedSort ? SORT_ORDER_NAMES[savedSort] : null;
         
-        log(`Checking saved sort for "${lorebookInfo.name}":`, savedSortName || 'none');
+        log(`Checking saved sort for "${lorebookName}":`, savedSortName || 'none');
         
         if (savedSort) {
-            info(`Switched to "${lorebookInfo.name}" (restoring: ${savedSortName})`);
+            info(`Switched to "${lorebookName}" (restoring: ${savedSortName})`);
             applySortOrder(savedSort);
         } else {
-            log(`No saved preference for "${lorebookInfo.name}"`);
+            log(`No saved preference for "${lorebookName}"`);
         }
     }
 }
@@ -199,9 +251,19 @@ function hookSortChanges() {
         log("Found sort selector, attaching listener");
         
         // Save preference when user changes sort
-        sortSelect.addEventListener('change', () => {
+        const sortChangeHandler = () => {
             log("Sort changed by user");
             saveSortPreference();
+        };
+        
+        sortSelect.addEventListener('change', sortChangeHandler);
+        
+        // Track for cleanup
+        trackedListeners.push({
+            element: sortSelect,
+            event: 'change',
+            handler: sortChangeHandler,
+            isJQuery: false
         });
     } else {
         console.warn(`[${extensionDisplayName}] WARNING: Could not find #world_info_sort_order`);
@@ -216,21 +278,30 @@ function hookLorebookSwitch() {
         log("Found world editor select, attaching Select2 listener");
         
         // Select2 uses its own events
-        worldSelect.on('select2:select', (e) => {
+        const select2Handler = (e) => {
             log("Lorebook switched (Select2 event)");
             // Small delay to let ST render the new lorebook
             setTimeout(() => {
                 restoreSortPreference();
             }, 100);
-        });
+        };
         
         // Also try the regular change event as backup
-        worldSelect.on('change', () => {
+        const changeHandler = () => {
             log("Lorebook switched (change event)");
             setTimeout(() => {
                 restoreSortPreference();
             }, 100);
-        });
+        };
+        
+        worldSelect.on('select2:select', select2Handler);
+        worldSelect.on('change', changeHandler);
+        
+        // Track for cleanup
+        trackedListeners.push(
+            { element: worldSelect, event: 'select2:select', handler: select2Handler, isJQuery: true },
+            { element: worldSelect, event: 'change', handler: changeHandler, isJQuery: true }
+        );
     } else {
         console.warn(`[${extensionDisplayName}] WARNING: Could not find #world_editor_select`);
     }
@@ -241,91 +312,26 @@ function hookEvents() {
     log("Registering event listeners");
     
     // ST might have events we can use
-    eventSource.on(event_types.WORLDINFO_SELECTED, (data) => {
+    const worldInfoSelectedHandler = (data) => {
         log("WORLDINFO_SELECTED event fired:", data);
         setTimeout(() => {
             restoreSortPreference();
         }, 100);
-    });
+    };
     
-    eventSource.on(event_types.WORLDINFO_SETTINGS_UPDATED, (data) => {
+    const worldInfoUpdatedHandler = (data) => {
         log("WORLDINFO_SETTINGS_UPDATED event fired:", data);
         saveSortPreference();
-    });
-}
-
-// Detect lorebook renames by watching the dropdown
-function setupRenameDetection() {
-    const worldSelect = document.querySelector('#world_editor_select');
-    if (!worldSelect) {
-        console.warn(`[${extensionDisplayName}] Cannot setup rename detection - selector not found`);
-        return;
-    }
-
-    // Track current lorebook names and when it was last changed
-    // Filter out the placeholder option
-    let currentNames = Array.from(worldSelect.options)
-    .map(opt => opt.text)
-    .filter(text => text !== '--- Pick to Edit ---');
+    };
     
-    // Create observer using Web API
-    const observer = new MutationObserver(() => {
-    const now = Date.now();
-    const timeSinceLastChange = now - lastChangeTime;
-    lastChangeTime = now;
+    eventSource.on(event_types.WORLDINFO_SELECTED, worldInfoSelectedHandler);
+    eventSource.on(event_types.WORLDINFO_SETTINGS_UPDATED, worldInfoUpdatedHandler);
     
-    const newNames = Array.from(worldSelect.options)
-        .map(opt => opt.text)
-        .filter(text => text !== '--- Pick to Edit ---');  // Add filter here too
-    const added = newNames.filter(n => !currentNames.includes(n));
-    const removed = currentNames.filter(n => !newNames.includes(n));
-    
-    // One added + one removed within 500ms = likely a rename
-    // (Delete + create would be slower and have multiple separate mutations)
-    if (added.length === 1 && removed.length === 1 && timeSinceLastChange < 500) {
-        handlePossibleRename(removed[0], added[0]);
-    }
-    
-    currentNames = newNames;
-});
-    
-    observer.observe(worldSelect, { childList: true });
-    log("Rename detection active");
-}
-
-// Handle detected lorebook rename
-function handlePossibleRename(oldName, newName) {
-    const prefs = extension_settings[extensionName].sortPreferences;
-    
-    if (prefs[oldName]) {
-        const sortOrder = prefs[oldName];
-        const sortName = SORT_ORDER_NAMES[sortOrder];
-        
-        let confirmed = true;
-        
-        // Only prompt if setting is enabled
-        if (extension_settings[extensionName].promptOnRename) {
-            confirmed = confirm(
-                `Detected possible lorebook rename:\n` +
-                `"${oldName}" → "${newName}"\n\n` +
-                `Transfer sort preference (${sortName}) to the new name?\n\n` +
-                `Click OK if this is a rename, or Cancel if these are different lorebooks.`
-            );
-        } else {
-            info(`Auto-migrating sort preference: "${oldName}" → "${newName}"`);
-        }
-        
-        if (confirmed) {
-            prefs[newName] = sortOrder;
-            delete prefs[oldName];
-            saveSettingsDebounced();
-            info(`Sort preference migrated: "${oldName}" → "${newName}"`);
-            
-            if (!extension_settings[extensionName].promptOnRename) {
-                toastr.success('Sort preference updated for renamed lorebook', 'Lorebook Sticky Sort');
-            }
-        }
-    }
+    // Track for cleanup
+    trackedListeners.push(
+        { element: eventSource, event: event_types.WORLDINFO_SELECTED, handler: worldInfoSelectedHandler, isJQuery: false },
+        { element: eventSource, event: event_types.WORLDINFO_SETTINGS_UPDATED, handler: worldInfoUpdatedHandler, isJQuery: false }
+    );
 }
 
 // Handle enabled toggle
@@ -342,14 +348,6 @@ function onDebugModeChange(event) {
     extension_settings[extensionName].debugMode = value;
     saveSettingsDebounced();
     info(`Debug mode ${value ? 'enabled' : 'disabled'}`);
-}
-
-// Handle prompt on rename toggle
-function onPromptRenameChange(event) {
-    const value = Boolean($(event.target).prop("checked"));
-    extension_settings[extensionName].promptOnRename = value;
-    saveSettingsDebounced();
-    info(`Prompt on rename ${value ? 'enabled' : 'disabled'}`);
 }
 
 // Handle clear preferences button
@@ -375,37 +373,40 @@ function onClearPreferences() {
 async function init() {
     info("Initializing...");
     
+    // Clean up any existing listeners first (in case of reinit)
+    cleanupEventListeners();
+    
     loadSettings();
     
     // Load settings UI
-    try {
-        const settingsHtml = await $.get(`${extensionFolderPath}/settings.html`);
-        $("#extensions_settings2").append(settingsHtml);
-        
-        // Bind event handlers
-        $("#sillytavern_lorebookstickysort_enabled").on("input", onEnabledChange);
-        $("#sillytavern_lorebookstickysort_debug").on("input", onDebugModeChange);
-        $("#sillytavern_lorebookstickysort_prompt_rename").on("input", onPromptRenameChange);
-        $("#sillytavern_lorebookstickysort_clear").on("click", onClearPreferences);
-        
-        // Update checkboxes
-        $("#sillytavern_lorebookstickysort_enabled").prop("checked", extension_settings[extensionName].enabled);
-        $("#sillytavern_lorebookstickysort_debug").prop("checked", extension_settings[extensionName].debugMode);
-        $("#sillytavern_lorebookstickysort_prompt_rename").prop("checked", extension_settings[extensionName].promptOnRename);
-        
-        log("Settings UI loaded");
+	try {
+		const settingsHtml = await $.get(`${extensionFolderPath}/settings.html`);
+		$("#extensions_settings2").append(settingsHtml);
+		
+		// Bind event handlers
+		$("#sillytavern_lorebookstickysort_enabled").on("input", onEnabledChange);
+		$("#sillytavern_lorebookstickysort_debug").on("input", onDebugModeChange);
+		$("#sillytavern_lorebookstickysort_clear").on("click", onClearPreferences);
+		
+		// Update checkbox states
+		$("#sillytavern_lorebookstickysort_enabled").prop("checked", extension_settings[extensionName].enabled);
+		$("#sillytavern_lorebookstickysort_debug").prop("checked", extension_settings[extensionName].debugMode);
+		
+		log("Settings UI loaded");
     } catch (error) {
         console.error(`[${extensionDisplayName}] Failed to load settings UI:`, error);
     }
     
-    // Wait for ST to load UI elements
+    // Wait a bit for ST to load UI elements
     await new Promise(resolve => setTimeout(resolve, 1000));
     
-    // Set up hooks
+    // Migrate old index-based preferences to name-based (one-time)
+    migrateOldPreferences();
+    
+    // Set up our hooks
     hookSortChanges();
     hookLorebookSwitch();
     hookEvents();
-    setupRenameDetection();
     
     // Try to restore for current lorebook
     restoreSortPreference();
@@ -414,7 +415,8 @@ async function init() {
     log("Available event types:", Object.keys(event_types));
 }
 
-// Register
-jQuery(async () => {
-    await init();
+// Wait for SillyTavern to be fully ready before initializing
+eventSource.once(event_types.APP_READY, () => {
+    info("SillyTavern ready, initializing extension");
+    init();
 });
