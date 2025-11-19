@@ -277,21 +277,39 @@ function hookLorebookSwitch() {
     if (worldSelect.length) {
         log("Found world editor select, attaching Select2 listener");
         
-        // Select2 uses its own events
-        const select2Handler = (e) => {
-            log("Lorebook switched (Select2 event)");
+        // Flag to prevent duplicate execution
+        let switchInProgress = false;
+        
+        // Handle lorebook switch with debouncing
+        const handleLorebookSwitch = (eventName) => {
+            log(`Lorebook switched (${eventName})`);
+            
+            // Skip if a switch is already in progress
+            if (switchInProgress) {
+                log("Skipping duplicate switch event");
+                return;
+            }
+            
+            switchInProgress = true;
+            
             // Small delay to let ST render the new lorebook
             setTimeout(() => {
                 restoreSortPreference();
+                // Reset flag after a short cooldown
+                setTimeout(() => {
+                    switchInProgress = false;
+                }, 200);
             }, 100);
         };
         
-        // Also try the regular change event as backup
+        // Select2 event (primary)
+        const select2Handler = (e) => {
+            handleLorebookSwitch("Select2 event");
+        };
+        
+        // Regular change event (backup for non-Select2 scenarios)
         const changeHandler = () => {
-            log("Lorebook switched (change event)");
-            setTimeout(() => {
-                restoreSortPreference();
-            }, 100);
+            handleLorebookSwitch("change event");
         };
         
         worldSelect.on('select2:select', select2Handler);
