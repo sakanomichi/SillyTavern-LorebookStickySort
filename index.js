@@ -6,7 +6,6 @@ const extensionFolderPath = `scripts/extensions/third-party/${extensionName}`;
 const extensionDisplayName = "LorebookStickySort";
 
 // Map sort order values to human-readable names
-// IMPORTANT: These values match SillyTavern's actual dropdown values!
 const SORT_ORDER_NAMES = {
     '0': 'Priority',
     '1': 'Title A-Z',
