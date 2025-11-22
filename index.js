@@ -99,6 +99,7 @@ window.lorebookStickySortDiagnostics = function() {
         console.log('   Sort Order:', currentSort.name, `(${currentSort.value})`);
     }
     console.log('   isRestoring flag:', isRestoring);
+    console.log('   restoreInProgress flag:', restoreInProgress);
     console.log('');
     
     console.log('═══════════════════════════════════════════════════════\n');
@@ -107,12 +108,15 @@ window.lorebookStickySortDiagnostics = function() {
         settings,
         preferences: prefs,
         current: { lorebook: currentLorebook, sort: currentSort },
-        isRestoring
+        flags: { isRestoring, restoreInProgress }
     };
 };
 
 // Flag to prevent recursive saves when restoring
 let isRestoring = false;
+
+// Flag to prevent simultaneous restore operations from multiple event sources
+let restoreInProgress = false;
 
 // Track event listeners for cleanup
 let trackedListeners = [];
@@ -326,6 +330,20 @@ function restoreSortPreference() {
         return;
     }
     
+    // CRITICAL: Skip if already restoring (prevents cascading calls from multiple event sources)
+    if (isRestoring) {
+        log("⚠️ BLOCKED: Already in restore cycle, preventing cascade");
+        return;
+    }
+    
+    // CRITICAL: Skip if another restore is in progress
+    if (restoreInProgress) {
+        log("⚠️ BLOCKED: Restore already in progress, preventing duplicate");
+        return;
+    }
+    
+    restoreInProgress = true;
+    
     const lorebookName = getCurrentLorebookName();
     
     if (lorebookName) {
@@ -348,6 +366,12 @@ function restoreSortPreference() {
             log(`➡️ No saved preference for "${lorebookName}" - keeping current sort (ST default behavior)`);
         }
     }
+    
+    // Release the flag after a short delay (same timing as isRestoring in applySortOrder)
+    setTimeout(() => {
+        restoreInProgress = false;
+        log("🔓 Restore lock released");
+    }, 150);
 }
 
 // Hook into sort changes
