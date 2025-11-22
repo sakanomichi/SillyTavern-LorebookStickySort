@@ -6,21 +6,23 @@ const extensionFolderPath = `scripts/extensions/third-party/${extensionName}`;
 const extensionDisplayName = "LorebookStickySort";
 
 // Map sort order values to human-readable names
+// IMPORTANT: These values match SillyTavern's actual dropdown values!
 const SORT_ORDER_NAMES = {
     '0': 'Priority',
-    '1': 'Custom',
-    '2': 'Title A-Z',
-    '3': 'Title Z-A',
-    '4': 'Tokens ↗',
-    '5': 'Tokens ↘',
-    '6': 'Depth ↗',
-    '7': 'Depth ↘',
-    '8': 'Order ↗',
-    '9': 'Order ↘',
-    '10': 'UID ↗',
-    '11': 'UID ↘',
-    '12': 'Trigger% ↗',
-    '13': 'Trigger% ↘'
+    '1': 'Title A-Z',
+    '2': 'Title Z-A',
+    '3': 'Tokens ↗',
+    '4': 'Tokens ↘',
+    '5': 'Depth ↗',
+    '6': 'Depth ↘',
+    '7': 'Order ↗',
+    '8': 'Order ↘',
+    '9': 'UID ↗',
+    '10': 'UID ↘',
+    '11': 'Trigger% ↗',
+    '12': 'Trigger% ↘',
+    '13': 'Custom',
+    '14': 'Search'  // Hidden option
 };
 
 // Helper for debug logging with call source tracking
@@ -99,7 +101,8 @@ window.lorebookStickySortDiagnostics = function() {
         console.log('   Sort Order:', currentSort.name, `(${currentSort.value})`);
     }
     console.log('   isRestoring flag:', isRestoring);
-    console.log('   restoreInProgress flag:', restoreInProgress);
+    const timeSinceRestore = Date.now() - lastRestoreTime;
+    console.log('   lastRestoreTime:', timeSinceRestore === Date.now() ? 'never' : `${timeSinceRestore}ms ago`);
     console.log('');
     
     console.log('═══════════════════════════════════════════════════════\n');
@@ -108,15 +111,16 @@ window.lorebookStickySortDiagnostics = function() {
         settings,
         preferences: prefs,
         current: { lorebook: currentLorebook, sort: currentSort },
-        flags: { isRestoring, restoreInProgress }
+        flags: { isRestoring, lastRestoreTime, timeSinceRestore }
     };
 };
 
 // Flag to prevent recursive saves when restoring
 let isRestoring = false;
 
-// Flag to prevent simultaneous restore operations from multiple event sources
-let restoreInProgress = false;
+// Timestamp of last restore operation (for debouncing)
+let lastRestoreTime = 0;
+const RESTORE_DEBOUNCE_MS = 300; // Don't allow restores within 300ms of each other
 
 // Track event listeners for cleanup
 let trackedListeners = [];
@@ -278,10 +282,23 @@ function applySortOrder(sortValue) {
     const sortSelect = document.querySelector('#world_info_sort_order');
     if (sortSelect && sortValue) {
         const sortName = SORT_ORDER_NAMES[sortValue] || sortValue;
-        log("Applying sort order:", sortValue, "->", sortName);
+        log(`Applying sort order: value="${sortValue}" (type: ${typeof sortValue}) -> ${sortName}`);
+        
+        // DEBUG: Inspect the dropdown options
+        log(`   Dropdown has ${sortSelect.options.length} options:`);
+        for (let i = 0; i < sortSelect.options.length; i++) {
+            const opt = sortSelect.options[i];
+            log(`      [${i}] value="${opt.value}" text="${opt.text}"`);
+        }
+        log(`   Current selected index: ${sortSelect.selectedIndex}`);
         
         isRestoring = true;
         sortSelect.value = sortValue;
+        
+        log(`   After setting value="${sortValue}":`);
+        log(`      Selected index: ${sortSelect.selectedIndex}`);
+        log(`      Selected value: "${sortSelect.value}"`);
+        log(`      Selected text: "${sortSelect.options[sortSelect.selectedIndex]?.text}"`);
         
         // Trigger change event to make ST actually apply the sort
         sortSelect.dispatchEvent(new Event('change', { bubbles: true }));
@@ -324,25 +341,36 @@ function saveSortPreference() {
 function restoreSortPreference() {
     eventCallTracker.track('restoreSortPreference');
     
+    // DEBUG: Log call stack to identify duplicate sources
+    if (extension_settings[extensionName]?.debugMode) {
+        const stack = new Error().stack;
+        const caller = stack.split('\n')[2]?.trim(); // Get immediate caller
+        log(`   Called from: ${caller}`);
+    }
+    
     // Skip if extension is disabled
     if (!extension_settings[extensionName].enabled) {
         log("Skipping restore (extension disabled)");
         return;
     }
     
-    // CRITICAL: Skip if already restoring (prevents cascading calls from multiple event sources)
+    // CRITICAL: Skip if already in restore cycle (prevents cascading calls)
     if (isRestoring) {
         log("⚠️ BLOCKED: Already in restore cycle, preventing cascade");
         return;
     }
     
-    // CRITICAL: Skip if another restore is in progress
-    if (restoreInProgress) {
-        log("⚠️ BLOCKED: Restore already in progress, preventing duplicate");
+    // CRITICAL: Debounce - don't allow restores within 300ms of each other
+    const now = Date.now();
+    const timeSinceLastRestore = now - lastRestoreTime;
+    if (timeSinceLastRestore < RESTORE_DEBOUNCE_MS) {
+        log(`⚠️ BLOCKED: Restore debounced (${timeSinceLastRestore}ms since last restore, need ${RESTORE_DEBOUNCE_MS}ms)`);
         return;
     }
     
-    restoreInProgress = true;
+    // Update timestamp to prevent duplicates
+    lastRestoreTime = now;
+    log("🔓 Restore lock acquired");
     
     const lorebookName = getCurrentLorebookName();
     
@@ -359,19 +387,15 @@ function restoreSortPreference() {
             // Reset to user's chosen default sort order
             const defaultSort = extension_settings[extensionName].defaultSortOrder;
             const defaultSortName = SORT_ORDER_NAMES[defaultSort] || `Custom (${defaultSort})`;
-            log(`🔄 No saved preference for "${lorebookName}" - resetting to default (${defaultSortName})`);
+            log(`🔄 No saved preference for "${lorebookName}" - resetting to default`);
+            log(`   Default value from settings: "${defaultSort}" (type: ${typeof defaultSort})`);
+            log(`   Resolved to: ${defaultSortName}`);
             applySortOrder(defaultSort);
         } else {
             // Do nothing - let ST's native behavior apply (carry over previous sort)
             log(`➡️ No saved preference for "${lorebookName}" - keeping current sort (ST default behavior)`);
         }
     }
-    
-    // Release the flag after a short delay (same timing as isRestoring in applySortOrder)
-    setTimeout(() => {
-        restoreInProgress = false;
-        log("🔓 Restore lock released");
-    }, 150);
 }
 
 // Hook into sort changes
@@ -428,7 +452,7 @@ function hookLorebookSwitch() {
             // Small delay to let ST render the new lorebook
             setTimeout(() => {
                 restoreSortPreference();
-                // Reset flag after a short cooldown
+                // Reset switch flag after everything completes
                 setTimeout(() => {
                     switchInProgress = false;
                     log("🔓 Switch lock released");
@@ -463,27 +487,19 @@ function hookLorebookSwitch() {
 function hookEvents() {
     log("Registering event listeners");
     
-    // ST might have events we can use
-    const worldInfoSelectedHandler = (data) => {
-        log("🎯 EVENT: WORLDINFO_SELECTED fired:", data);
-        eventCallTracker.track('WORLDINFO_SELECTED');
-        setTimeout(() => {
-            restoreSortPreference();
-        }, 100);
-    };
-    
+    // Only listen to WORLDINFO_SETTINGS_UPDATED for save operations
+    // NOTE: We don't use WORLDINFO_SELECTED because it duplicates our Select2/change listeners
+    // and causes race conditions with multiple simultaneous restore calls
     const worldInfoUpdatedHandler = (data) => {
         log("🎯 EVENT: WORLDINFO_SETTINGS_UPDATED fired:", data);
         eventCallTracker.track('WORLDINFO_SETTINGS_UPDATED');
         saveSortPreference();
     };
     
-    eventSource.on(event_types.WORLDINFO_SELECTED, worldInfoSelectedHandler);
     eventSource.on(event_types.WORLDINFO_SETTINGS_UPDATED, worldInfoUpdatedHandler);
     
     // Track for cleanup
     trackedListeners.push(
-        { element: eventSource, event: event_types.WORLDINFO_SELECTED, handler: worldInfoSelectedHandler, isJQuery: false },
         { element: eventSource, event: event_types.WORLDINFO_SETTINGS_UPDATED, handler: worldInfoUpdatedHandler, isJQuery: false }
     );
 }
@@ -516,10 +532,11 @@ function onResetToDefaultChange(event) {
 // Handle default sort order dropdown
 function onDefaultSortChange(event) {
     const value = $(event.target).val();
+    log(`Default sort dropdown changed: raw value = "${value}", type = ${typeof value}`);
     extension_settings[extensionName].defaultSortOrder = value;
     saveSettingsDebounced();
     const sortName = SORT_ORDER_NAMES[value] || `Custom (${value})`;
-    info(`Default sort order set to: ${sortName}`);
+    info(`Default sort order set to: ${sortName} (value: ${value})`);
 }
 
 // Show/hide default sort dropdown based on reset checkbox
@@ -579,7 +596,9 @@ async function init() {
 		$("#sillytavern_lorebookstickysort_reset_default").prop("checked", extension_settings[extensionName].resetToDefault);
 		
 		// Update dropdown value and visibility
-		$("#sillytavern_lorebookstickysort_default_sort").val(extension_settings[extensionName].defaultSortOrder);
+		const defaultSortValue = extension_settings[extensionName].defaultSortOrder;
+		log(`Initializing default sort dropdown with value: "${defaultSortValue}" (${SORT_ORDER_NAMES[defaultSortValue]})`);
+		$("#sillytavern_lorebookstickysort_default_sort").val(defaultSortValue);
 		updateDefaultSortVisibility();
 		
 		log("Settings UI loaded");
