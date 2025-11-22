@@ -508,7 +508,6 @@ function updateDefaultSortVisibility() {
         container.hide();
     }
 }
-}
 
 // Handle clear preferences button
 function onClearPreferences() {
