@@ -28,6 +28,39 @@
 				</small>
 				
 				<hr class="m-t-1 m-b-1">
+				
+				<label class="checkbox_label" for="sillytavern_lorebookstickysort_reset_default">
+					<input id="sillytavern_lorebookstickysort_reset_default" type="checkbox" />
+					<span>Auto-Apply Default to Unsaved Lorebooks</span>
+				</label>
+				<small class="notes">
+				When enabled, lorebooks without saved preferences will automatically switch to your chosen default sort order below. When disabled, they keep whatever sort they currently have (SillyTavern's native behavior).
+				</small>
+				
+				<div id="sillytavern_lorebookstickysort_default_sort_container" class="m-t-1">
+					<label for="sillytavern_lorebookstickysort_default_sort">Default Sort Order:</label>
+					<select id="sillytavern_lorebookstickysort_default_sort" class="text_pole">
+						<option value="0">Priority</option>
+						<option value="1">Title A-Z</option>
+						<option value="2">Title Z-A</option>
+						<option value="3">Tokens ↗</option>
+						<option value="4">Tokens ↘</option>
+						<option value="5">Depth ↗</option>
+						<option value="6">Depth ↘</option>
+						<option value="7">Order ↗</option>
+						<option value="8">Order ↘</option>
+						<option value="9">UID ↗</option>
+						<option value="10">UID ↘</option>
+						<option value="11">Trigger% ↗</option>
+						<option value="12">Trigger% ↘</option>
+						<option value="13">Custom</option>
+					</select>
+					<small class="notes">
+					Which sort order to apply when opening unsaved lorebooks (only used when "Auto-Apply" is enabled).
+					</small>
+				</div>
+				
+				<hr class="m-t-1 m-b-1">
 
 				<div>
 					<input id="sillytavern_lorebookstickysort_clear" class="menu_button" type="submit" value="Clear All Preferences" />
