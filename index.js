@@ -23,10 +23,12 @@ const SORT_ORDER_NAMES = {
     '13': 'Trigger% ↘'
 };
 
-// Helper for debug logging
+// Helper for debug logging with call source tracking
 function log(...args) {
     if (extension_settings[extensionName]?.debugMode) {
-        console.log(`[${extensionDisplayName}]`, ...args);
+        // Add timestamp for tracking rapid-fire events
+        const timestamp = new Date().toISOString().split('T')[1].slice(0, -1);
+        console.log(`[${extensionDisplayName}] [${timestamp}]`, ...args);
     }
 }
 
@@ -34,6 +36,80 @@ function log(...args) {
 function info(...args) {
     console.log(`[${extensionDisplayName}]`, ...args);
 }
+
+// Track event calls to detect duplicates
+const eventCallTracker = {
+    lastCall: null,
+    callCount: 0,
+    resetTimeout: null,
+    
+    track(eventName) {
+        const now = Date.now();
+        if (this.lastCall && now - this.lastCall < 200) {
+            this.callCount++;
+            if (this.callCount > 1) {
+                log(`⚠️ DUPLICATE EVENT: "${eventName}" fired ${this.callCount} times within 200ms`);
+            }
+        } else {
+            this.callCount = 1;
+        }
+        this.lastCall = now;
+        
+        // Reset counter after 500ms of no activity
+        clearTimeout(this.resetTimeout);
+        this.resetTimeout = setTimeout(() => {
+            this.callCount = 0;
+            this.lastCall = null;
+        }, 500);
+    }
+}
+
+// Diagnostic function for console testing (call with: window.lorebookStickySortDiagnostics())
+window.lorebookStickySortDiagnostics = function() {
+    const prefs = extension_settings[extensionName]?.sortPreferences || {};
+    const settings = extension_settings[extensionName] || {};
+    
+    console.log('\n═══════════════════════════════════════════════════════');
+    console.log('   LOREBOOK STICKY SORT - DIAGNOSTICS');
+    console.log('═══════════════════════════════════════════════════════\n');
+    
+    console.log('📊 CURRENT SETTINGS:');
+    console.log('   Enabled:', settings.enabled);
+    console.log('   Debug Mode:', settings.debugMode);
+    console.log('   Reset to Default:', settings.resetToDefault);
+    console.log('   Default Sort Order:', settings.defaultSortOrder, '-', SORT_ORDER_NAMES[settings.defaultSortOrder]);
+    console.log('');
+    
+    console.log('📚 SAVED PREFERENCES:', Object.keys(prefs).length, 'lorebooks');
+    if (Object.keys(prefs).length > 0) {
+        Object.entries(prefs).forEach(([name, sortValue]) => {
+            const sortName = SORT_ORDER_NAMES[sortValue] || `Unknown (${sortValue})`;
+            console.log(`   "${name}" → ${sortName} (${sortValue})`);
+        });
+    } else {
+        console.log('   (none)');
+    }
+    console.log('');
+    
+    const currentLorebook = getCurrentLorebookName();
+    const currentSort = getCurrentSortInfo();
+    console.log('🎯 CURRENT STATE:');
+    console.log('   Lorebook:', currentLorebook || '(none selected)');
+    if (currentSort) {
+        console.log('   Sort Order:', currentSort.name, `(${currentSort.value})`);
+    }
+    console.log('   isRestoring flag:', isRestoring);
+    console.log('');
+    
+    console.log('═══════════════════════════════════════════════════════\n');
+    
+    return {
+        settings,
+        preferences: prefs,
+        current: { lorebook: currentLorebook, sort: currentSort },
+        isRestoring
+    };
+};
 
 // Flag to prevent recursive saves when restoring
 let isRestoring = false;
@@ -213,6 +289,8 @@ function applySortOrder(sortValue) {
 
 // Save current sort preference for the current lorebook
 function saveSortPreference() {
+    eventCallTracker.track('saveSortPreference');
+    
     // Skip if extension is disabled
     if (!extension_settings[extensionName].enabled) {
         log("Skipping save (extension disabled)");
@@ -229,14 +307,19 @@ function saveSortPreference() {
     const sortInfo = getCurrentSortInfo();
     
     if (lorebookName && sortInfo) {
-        log(`Saving: "${lorebookName}" -> ${sortInfo.name}`);
+        log(`💾 SAVING: "${lorebookName}" -> ${sortInfo.name} (${sortInfo.value})`);
         extension_settings[extensionName].sortPreferences[lorebookName] = sortInfo.value;
         saveSettingsDebounced();
+        log(`✓ Save queued (debounced)`);
+    } else {
+        log("⚠️ Cannot save - missing lorebook or sort info:", { lorebookName, sortInfo });
     }
 }
 
 // Restore sort preference for the current lorebook
 function restoreSortPreference() {
+    eventCallTracker.track('restoreSortPreference');
+    
     // Skip if extension is disabled
     if (!extension_settings[extensionName].enabled) {
         log("Skipping restore (extension disabled)");
@@ -249,21 +332,20 @@ function restoreSortPreference() {
         const savedSort = extension_settings[extensionName].sortPreferences[lorebookName];
         const savedSortName = savedSort ? SORT_ORDER_NAMES[savedSort] : null;
         
-        log(`Checking saved sort for "${lorebookName}":`, savedSortName || 'none');
+        log(`🔍 CHECKING: "${lorebookName}" - saved sort:`, savedSortName || 'none');
         
         if (savedSort) {
-            info(`Switched to "${lorebookName}" (restoring: ${savedSortName})`);
+            info(`📖 Switched to "${lorebookName}" (restoring: ${savedSortName})`);
             applySortOrder(savedSort);
         } else if (extension_settings[extensionName].resetToDefault) {
             // Reset to user's chosen default sort order
             const defaultSort = extension_settings[extensionName].defaultSortOrder;
             const defaultSortName = SORT_ORDER_NAMES[defaultSort] || `Custom (${defaultSort})`;
-            log(`No saved preference for "${lorebookName}" - resetting to default (${defaultSortName})`);
+            log(`🔄 No saved preference for "${lorebookName}" - resetting to default (${defaultSortName})`);
             applySortOrder(defaultSort);
         } else {
             // Do nothing - let ST's native behavior apply (carry over previous sort)
-            log(`No saved preference for "${lorebookName}" - keeping current sort (ST default behavior)`);
-        }
+            log(`➡️ No saved preference for "${lorebookName}" - keeping current sort (ST default behavior)`);
         }
     }
 }
@@ -277,7 +359,7 @@ function hookSortChanges() {
         
         // Save preference when user changes sort
         const sortChangeHandler = () => {
-            log("Sort changed by user");
+            log("🎯 EVENT: Sort dropdown 'change' event fired");
             saveSortPreference();
         };
         
@@ -307,15 +389,17 @@ function hookLorebookSwitch() {
         
         // Handle lorebook switch with debouncing
         const handleLorebookSwitch = (eventName) => {
-            log(`Lorebook switched (${eventName})`);
+            log(`🎯 EVENT: Lorebook switch (${eventName})`);
             
             // Skip if a switch is already in progress
             if (switchInProgress) {
-                log("Skipping duplicate switch event");
+                log("⚠️ DUPLICATE PREVENTED: Switch already in progress, skipping");
+                eventCallTracker.track('lorebookSwitch-BLOCKED');
                 return;
             }
             
             switchInProgress = true;
+            eventCallTracker.track('lorebookSwitch');
             
             // Small delay to let ST render the new lorebook
             setTimeout(() => {
@@ -323,6 +407,7 @@ function hookLorebookSwitch() {
                 // Reset flag after a short cooldown
                 setTimeout(() => {
                     switchInProgress = false;
+                    log("🔓 Switch lock released");
                 }, 200);
             }, 100);
         };
@@ -356,14 +441,16 @@ function hookEvents() {
     
     // ST might have events we can use
     const worldInfoSelectedHandler = (data) => {
-        log("WORLDINFO_SELECTED event fired:", data);
+        log("🎯 EVENT: WORLDINFO_SELECTED fired:", data);
+        eventCallTracker.track('WORLDINFO_SELECTED');
         setTimeout(() => {
             restoreSortPreference();
         }, 100);
     };
     
     const worldInfoUpdatedHandler = (data) => {
-        log("WORLDINFO_SETTINGS_UPDATED event fired:", data);
+        log("🎯 EVENT: WORLDINFO_SETTINGS_UPDATED fired:", data);
+        eventCallTracker.track('WORLDINFO_SETTINGS_UPDATED');
         saveSortPreference();
     };
     
