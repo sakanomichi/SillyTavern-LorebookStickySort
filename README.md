@@ -49,7 +49,7 @@ Access settings through **Extensions → Lorebook Sticky Sort**:
 
 ## How It Works
 
-The extension monitors the World Info sort dropdown. When you change the sort order, it saves that preference along with the current lorebook's name. When you switch lorebooks, it checks if a saved preference exists and restores it. If no preference exists and "Reset Unsaved Lorebooks" is enabled, it applies your chosen default sort order.
+The extension monitors the World Info sort dropdown. When you change the sort order, it saves that preference along with the current lorebook's name. When you switch lorebooks, it checks if a saved preference exists and restores it. If no preference exists and "Auto-Apply Default to Unsaved Lorebooks" is enabled, it applies your chosen default sort order.
 
 Preferences are stored by lorebook name in SillyTavern's extension settings. This means:
 - Settings persist across browser sessions
