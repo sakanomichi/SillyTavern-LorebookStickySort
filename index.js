@@ -45,7 +45,9 @@ let trackedListeners = [];
 const defaultSettings = {
     sortPreferences: {},
     enabled: true,
-    debugMode: false
+    debugMode: false,
+    resetToDefault: false,  // OFF by default - use ST's native behavior (keep current sort)
+    defaultSortOrder: '0'   // Priority - user can change to any sort order (0-13 or custom)
 };
 
 // Initialize settings
@@ -65,6 +67,16 @@ function loadSettings() {
         extension_settings[extensionName].debugMode = false;
     }
     
+    // Ensure resetToDefault exists (OFF by default - ST's native behavior)
+    if (extension_settings[extensionName].resetToDefault === undefined) {
+        extension_settings[extensionName].resetToDefault = false;
+    }
+    
+    // Ensure defaultSortOrder exists
+    if (extension_settings[extensionName].defaultSortOrder === undefined) {
+        extension_settings[extensionName].defaultSortOrder = '0';  // Priority
+    }
+    
     // Update UI if it exists
     const enabledCheckbox = document.querySelector('#sillytavern_lorebookstickysort_enabled');
     if (enabledCheckbox) {
@@ -74,6 +86,11 @@ function loadSettings() {
     const debugCheckbox = document.querySelector('#sillytavern_lorebookstickysort_debug');
     if (debugCheckbox) {
         debugCheckbox.checked = extension_settings[extensionName].debugMode;
+    }
+    
+    const resetCheckbox = document.querySelector('#sillytavern_lorebookstickysort_reset_default');
+    if (resetCheckbox) {
+        resetCheckbox.checked = extension_settings[extensionName].resetToDefault;
     }
     
     log("Settings loaded:", extension_settings[extensionName]);
@@ -237,8 +254,16 @@ function restoreSortPreference() {
         if (savedSort) {
             info(`Switched to "${lorebookName}" (restoring: ${savedSortName})`);
             applySortOrder(savedSort);
+        } else if (extension_settings[extensionName].resetToDefault) {
+            // Reset to user's chosen default sort order
+            const defaultSort = extension_settings[extensionName].defaultSortOrder;
+            const defaultSortName = SORT_ORDER_NAMES[defaultSort] || `Custom (${defaultSort})`;
+            log(`No saved preference for "${lorebookName}" - resetting to default (${defaultSortName})`);
+            applySortOrder(defaultSort);
         } else {
-            log(`No saved preference for "${lorebookName}"`);
+            // Do nothing - let ST's native behavior apply (carry over previous sort)
+            log(`No saved preference for "${lorebookName}" - keeping current sort (ST default behavior)`);
+        }
         }
     }
 }
@@ -277,21 +302,39 @@ function hookLorebookSwitch() {
     if (worldSelect.length) {
         log("Found world editor select, attaching Select2 listener");
         
-        // Select2 uses its own events
-        const select2Handler = (e) => {
-            log("Lorebook switched (Select2 event)");
+        // Flag to prevent duplicate execution
+        let switchInProgress = false;
+        
+        // Handle lorebook switch with debouncing
+        const handleLorebookSwitch = (eventName) => {
+            log(`Lorebook switched (${eventName})`);
+            
+            // Skip if a switch is already in progress
+            if (switchInProgress) {
+                log("Skipping duplicate switch event");
+                return;
+            }
+            
+            switchInProgress = true;
+            
             // Small delay to let ST render the new lorebook
             setTimeout(() => {
                 restoreSortPreference();
+                // Reset flag after a short cooldown
+                setTimeout(() => {
+                    switchInProgress = false;
+                }, 200);
             }, 100);
         };
         
-        // Also try the regular change event as backup
+        // Select2 event (primary)
+        const select2Handler = (e) => {
+            handleLorebookSwitch("Select2 event");
+        };
+        
+        // Regular change event (backup for non-Select2 scenarios)
         const changeHandler = () => {
-            log("Lorebook switched (change event)");
-            setTimeout(() => {
-                restoreSortPreference();
-            }, 100);
+            handleLorebookSwitch("change event");
         };
         
         worldSelect.on('select2:select', select2Handler);
@@ -350,6 +393,36 @@ function onDebugModeChange(event) {
     info(`Debug mode ${value ? 'enabled' : 'disabled'}`);
 }
 
+// Handle reset to default toggle
+function onResetToDefaultChange(event) {
+    const value = Boolean($(event.target).prop("checked"));
+    extension_settings[extensionName].resetToDefault = value;
+    saveSettingsDebounced();
+    updateDefaultSortVisibility();
+    const defaultSortName = SORT_ORDER_NAMES[extension_settings[extensionName].defaultSortOrder] || 'custom';
+    info(`Reset to default ${value ? 'enabled' : 'disabled'} - new lorebooks will ${value ? `start with ${defaultSortName}` : 'keep current sort'}`);}
+
+// Handle default sort order dropdown
+function onDefaultSortChange(event) {
+    const value = $(event.target).val();
+    extension_settings[extensionName].defaultSortOrder = value;
+    saveSettingsDebounced();
+    const sortName = SORT_ORDER_NAMES[value] || `Custom (${value})`;
+    info(`Default sort order set to: ${sortName}`);
+}
+
+// Show/hide default sort dropdown based on reset checkbox
+function updateDefaultSortVisibility() {
+    const resetEnabled = extension_settings[extensionName].resetToDefault;
+    const container = $('#sillytavern_lorebookstickysort_default_sort_container');
+    if (resetEnabled) {
+        container.show();
+    } else {
+        container.hide();
+    }
+}
+}
+
 // Handle clear preferences button
 function onClearPreferences() {
     const count = Object.keys(extension_settings[extensionName].sortPreferences).length;
@@ -386,11 +459,18 @@ async function init() {
 		// Bind event handlers
 		$("#sillytavern_lorebookstickysort_enabled").on("input", onEnabledChange);
 		$("#sillytavern_lorebookstickysort_debug").on("input", onDebugModeChange);
+		$("#sillytavern_lorebookstickysort_reset_default").on("input", onResetToDefaultChange);
+		$("#sillytavern_lorebookstickysort_default_sort").on("change", onDefaultSortChange);
 		$("#sillytavern_lorebookstickysort_clear").on("click", onClearPreferences);
 		
 		// Update checkbox states
 		$("#sillytavern_lorebookstickysort_enabled").prop("checked", extension_settings[extensionName].enabled);
 		$("#sillytavern_lorebookstickysort_debug").prop("checked", extension_settings[extensionName].debugMode);
+		$("#sillytavern_lorebookstickysort_reset_default").prop("checked", extension_settings[extensionName].resetToDefault);
+		
+		// Update dropdown value and visibility
+		$("#sillytavern_lorebookstickysort_default_sort").val(extension_settings[extensionName].defaultSortOrder);
+		updateDefaultSortVisibility();
 		
 		log("Settings UI loaded");
     } catch (error) {
